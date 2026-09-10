@@ -7,6 +7,13 @@ const event = (properties: string, overrides: Partial<EventRecord> = {}): EventR
 });
 const now=new Date(2026,8,11,10);
 describe("native widget snapshot",()=>{
+  it("preserves per-occurrence identity and colors before calendar fallback",()=>{
+    const record=event("DTSTART:20260911T090000Z\r\nDTEND:20260911T100000Z\r\nRRULE:FREQ=DAILY;COUNT=3\r\nCOLOR:Tomato");
+    record.ical=record.ical.replace("END:VCALENDAR","BEGIN:VEVENT\r\nUID:a\r\nRECURRENCE-ID:20260912T090000Z\r\nDTSTART:20260912T110000Z\r\nDTEND:20260912T120000Z\r\nSUMMARY:예외\r\nCOLOR:#0F8\r\nEND:VEVENT\r\nEND:VCALENDAR");
+    const data=buildWidgetData([record],[defaultCalendar],0,now);
+    expect(data.events.map(e=>e.color)).toEqual(["#ff6347","#00ff88","#ff6347"]);
+    expect(data.events[1]).toMatchObject({key:record.key,recurrenceId:"2026-09-12T09:00:00Z"});
+  });
   it("includes hidden calendars for independent widget filters and excludes deletions",()=>{
     const record=event("DTSTART;VALUE=DATE:20260911\r\nDTEND;VALUE=DATE:20260913",{dirty:true});
     const data=buildWidgetData([record,{...record,key:"deleted",deleted:true}],[{...defaultCalendar,hidden:true}],42,now);

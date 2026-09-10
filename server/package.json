@@ -5,6 +5,7 @@
   "dependencies": {
     "@fastify/static": "10.1.3",
     "@xmldom/xmldom": "0.9.12",
+    "color-name": "1.1.4",
     "fastify": "5.12.3",
     "ical.js": "2.2.1",
     "zod": "4.6.1"

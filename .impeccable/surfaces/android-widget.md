@@ -14,7 +14,9 @@ FIRST VIEWPORT: A narrow month navigation strip, seven aligned weekday labels, f
 
 FORM: User-confirmed full-screen monthly form, default 4×5 launcher cells with two-axis resizing. This is a specified native layout within the existing series, not a new visual-world selection.
 
-SIGNATURE INTERACTION: Resizing reveals more event lines without changing the month structure. Tap a day to continue in the app; navigate months without opening it. Settings show the same renderer used by the launcher.
+SIGNATURE INTERACTION: Resizing reveals more event lines without changing the month structure. Tap an event line to open that local event and recurrence; tap a date or overflow count to browse its day. Navigate months without opening the app. Settings show the same renderer used by the launcher.
+
+COLOR: An event's own COLOR takes precedence over its calendar color; a recurrence exception may override the master. Keep the exact color in a 1dp marker in tint, solid, and plain modes, with a contrasting title. Compact single-line event targets are explicitly requested by the user; retain full date-cell access for easier day browsing.
 
 QUALITY BAR: Native configuration controls, system insets and Back cancellation; explicit stale/empty/out-of-range states; accessible date descriptions, correct recurring and multi-day events, independent instances and durable private snapshots. App changes update the widget immediately; server refresh uses the app's existing authenticated connection.
 

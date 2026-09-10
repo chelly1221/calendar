@@ -24,6 +24,30 @@ import kr.threechan.calendar.MainActivity;
 public class WidgetIntegrationTest {
     final Instrumentation instrument=InstrumentationRegistry.getInstrumentation();
     final Context context=instrument.getTargetContext();
+    @Test public void eventColorsAndDistinctClickTargets()throws Exception{
+        JSONObject snapshot=WidgetHarnessActivity.fixture();
+        JSONObject raw=snapshot.getJSONArray("events").getJSONObject(0);
+        raw.put("color","#ff6347").put("recurrenceId","2026-09-11");
+        WidgetConfig cfg=new WidgetConfig(new JSONObject());
+        WidgetCalendar.Entry entry=WidgetCalendar.entries(snapshot,cfg,YearMonth.now().atDay(1),31,ZoneId.systemDefault()).get(YearMonth.now().atDay(1)).get(0);
+        assertEquals("#ff6347",entry.color);assertEquals(raw.getString("key"),entry.key);
+        android.app.PendingIntent first=WidgetRenderer.openEvent(context,7,LocalDate.now(),entry);
+        entry.key="another-calendar/same #한글.ics";
+        assertNotEquals(first,WidgetRenderer.openEvent(context,7,LocalDate.now(),entry));
+        entry.key=raw.getString("key");entry.recurrenceId="2026-09-12";
+        assertNotEquals(first,WidgetRenderer.openEvent(context,7,LocalDate.now(),entry));
+        for(String theme:new String[]{"dark","light"})for(String style:new String[]{"tint","solid","plain"}){
+            cfg.set("theme",theme);cfg.set("eventStyle",style);
+            instrument.runOnMainSync(()->{
+                View view=WidgetRenderer.render(context,7,cfg,snapshot,400,800,YearMonth.now()).apply(context,new FrameLayout(context));
+                View marker=find(view,R.id.widget_event_color);
+                assertEquals(View.VISIBLE,marker.getVisibility());
+                assertEquals(0xffff6347,((android.graphics.drawable.ColorDrawable)marker.getBackground()).getColor());
+                View row=find(view,R.id.widget_event);assertTrue(row.isClickable());
+                assertTrue(row.getContentDescription().toString().contains("일정 열기"));
+            });
+        }
+    }
     @Test public void bundledAppPublishesThroughCapacitor()throws Exception{
         long before=WidgetStore.read(context).optLong("generatedAt");
         MainActivity app=(MainActivity)instrument.startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -102,7 +126,9 @@ public class WidgetIntegrationTest {
         for(TextView v:titles(host)){
             assertEquals(1,v.getMaxLines());
             android.graphics.Rect bounds=new android.graphics.Rect(0,0,v.getWidth(),v.getHeight());
-            ViewGroup day=(ViewGroup)v.getParent().getParent();day.offsetDescendantRectToMyCoords(v,bounds);
+            ViewGroup day=(ViewGroup)v.getParent();
+            while(day.getId()!=R.id.widget_day)day=(ViewGroup)day.getParent();
+            day.offsetDescendantRectToMyCoords(v,bounds);
             assertTrue("Clipped event row: "+v.getText(),bounds.bottom<=day.getHeight());
         }
     }

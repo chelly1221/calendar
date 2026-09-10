@@ -7,7 +7,7 @@ import java.util.*;
 
 public final class WidgetCalendar {
     public static final class Entry {
-        public String title, color, time;
+        public String title, color, time, key, recurrenceId;
         public boolean allDay;
         public long order;
     }
@@ -63,7 +63,9 @@ public final class WidgetCalendar {
                 LocalDate to=endDay.isAfter(until)?until:endDay;
                 for (LocalDate day=from; day.isBefore(to); day=day.plusDays(1)) {
                     Entry e=new Entry(); e.title=raw.optString("title", "제목 없는 일정").replaceAll("[\\r\\n\\t]+", " ");
-                    e.color=colors.getOrDefault(raw.optString("calendarId"), "#b59ae8"); e.allDay=allDay;
+                    e.key=raw.optString("key");e.recurrenceId=raw.optString("recurrenceId");
+                    String ownColor=raw.optString("color");
+                    e.color=ownColor.matches("#[a-fA-F0-9]{6}")?ownColor:colors.getOrDefault(raw.optString("calendarId"), "#b59ae8"); e.allDay=allDay;
                     e.time=!allDay && day.equals(startDay) ? start.toLocalTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")) : "";
                     e.order=allDay?startDay.toEpochDay()*86400000L:start.toInstant().toEpochMilli();
                     result.computeIfAbsent(day, k -> new ArrayList<>()).add(e);

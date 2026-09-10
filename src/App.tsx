@@ -56,9 +56,10 @@ import Editor, { Modal } from "./Editor";
 import WidgetSettings from "./WidgetSettings";
 import { startWidgetBridge, type WidgetAction } from "./lib/widgets";
 import { restoreLocalProfile } from "./lib/local-session";
+import { resolveWidgetEvent } from "./lib/widget-action";
 
 const preview = import.meta.env.DEV && new URLSearchParams(location.search).has("preview");
-const DOWNLOAD = "https://calendar.3chan.kr/downloads/calendar-0.2.1.apk";
+const DOWNLOAD = "https://calendar.3chan.kr/downloads/calendar-0.2.2.apk";
 const weekday = ["일", "월", "화", "수", "목", "금", "토"];
 const timeFormat = new Intl.DateTimeFormat("ko-KR", {
   hour: "2-digit",
@@ -141,6 +142,18 @@ export default function App() {
         setTimeout(() => document.querySelector(".day-panel")?.scrollIntoView({ block: "start" }), 100);
     }
     if (widgetAction.action === "sync") void syncNow();
+    if (widgetAction.action === "event") {
+      let active = true;
+      setEditor(null);
+      void resolveWidgetEvent(widgetAction).then(target => {
+        if (!active) return;
+        if (target) setEditor(target);
+        else setNotice("일정이 변경되었거나 삭제됐어요. 달력에서 확인해 주세요.");
+      }).catch(() => {
+        if (active) setNotice("일정을 열지 못했어요. 달력에서 다시 선택해 주세요.");
+      }).finally(() => { if (active) setWidgetAction(null); });
+      return () => { active = false; };
+    }
     setWidgetAction(null);
   }, [ready, widgetAction]);
   const connect = async () => {
@@ -364,7 +377,7 @@ export default function App() {
     <button
       key={event.key + event.recurrenceId}
       className="event-row"
-      style={colorStyle(eventCalendar(event).color)}
+      style={colorStyle(event.color ?? eventCalendar(event).color)}
       onClick={() => openEvent(event)}
     >
       <span className="event-dot" />
@@ -713,7 +726,7 @@ export default function App() {
                           <button
                             key={event.key + event.recurrenceId}
                             className={`event-chip ${event.allDay ? "all-day" : ""}`}
-                            style={colorStyle(eventCalendar(event).color)}
+                            style={colorStyle(event.color ?? eventCalendar(event).color)}
                             onClick={() => openEvent(event)}
                           >
                             <span className="event-dot" />
@@ -729,7 +742,7 @@ export default function App() {
                       </div>
                       <div className="mobile-dots" aria-hidden="true">
                         {items.slice(0, 4).map((e, i) => (
-                          <i key={i} style={{ background: eventCalendar(e).color }} />
+                          <i key={i} style={{ background: e.color ?? eventCalendar(e).color }} />
                         ))}
                       </div>
                     </div>
@@ -757,7 +770,7 @@ export default function App() {
                         <button
                           key={event.key + event.recurrenceId}
                           className="week-event"
-                          style={colorStyle(eventCalendar(event).color)}
+                          style={colorStyle(event.color ?? eventCalendar(event).color)}
                           onClick={() => openEvent(event)}
                         >
                           <span className="event-dot" />
@@ -1023,7 +1036,7 @@ export default function App() {
               </p>
             </section>
             <section>
-              <h3>달력 0.2.1</h3>
+              <h3>달력 0.2.2</h3>
               <DownloadLink />
               <p className="field-hint">
                 노트 · 연락처 · 달력

@@ -13,10 +13,16 @@ public class CalendarWidgetsPlugin extends Plugin {
     @Override public void load(){capture(getActivity().getIntent());}
     private synchronized void capture(Intent intent){
         String day=intent.getStringExtra("widget_date");String action=intent.getStringExtra("widget_action");
-        if(day==null||action==null||!day.matches("\\d{4}-\\d{2}-\\d{2}")||!(action.equals("day")||action.equals("new")||action.equals("sync")))return;
+        if(day==null||action==null||!day.matches("\\d{4}-\\d{2}-\\d{2}")||!(action.equals("day")||action.equals("new")||action.equals("sync")||action.equals("event")))return;
         try{LocalDate.parse(day);}catch(Exception e){return;}
         pending=new JSObject().put("date",day).put("action",action);
+        if(action.equals("event")){
+            String key=intent.getStringExtra("widget_key"),rid=intent.getStringExtra("widget_recurrence_id");
+            if(key==null||key.isEmpty()||key.length()>4096||rid!=null&&rid.length()>512){pending=null;return;}
+            pending.put("key",key).put("recurrenceId",rid==null?"":rid);
+        }
         intent.removeExtra("widget_date");intent.removeExtra("widget_action");
+        intent.removeExtra("widget_key");intent.removeExtra("widget_recurrence_id");
     }
     @Override protected void handleOnNewIntent(Intent intent){capture(intent);notifyListeners("openDate",new JSObject());}
     @PluginMethod public synchronized void consumeAction(PluginCall call){

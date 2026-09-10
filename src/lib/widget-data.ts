@@ -2,7 +2,7 @@ import { expandEvent, localDate, localTime } from "./ical";
 import type { Calendar, EventRecord } from "./database";
 
 export type WidgetEvent = {
-  key: string; calendarId: string; title: string; start: number; end: number;
+  key: string; recurrenceId: string; color?: string; calendarId: string; title: string; start: number; end: number;
   startDay: string; endDay: string; startLocal: string; endLocal: string;
   allDay: boolean; floating: boolean;
 };
@@ -18,7 +18,7 @@ export function buildWidgetData(records: EventRecord[], calendars: Calendar[], l
       const expanded = expandEvent(record.ical, record.key, from, until);
       if (events.length + expanded.length > 40000) throw new Error("Widget snapshot capacity");
       for (const e of expanded) events.push({
-        key: e.key, calendarId: record.calendarId,
+        key: e.key, recurrenceId: e.recurrenceId, color: e.color, calendarId: record.calendarId,
         title: e.title.replace(/[\r\n\t]+/g, " ").slice(0, 300),
         start: +e.start, end: +e.end, allDay: e.allDay, floating: e.floating,
         startDay: localDate(e.start), endDay: localDate(e.end),

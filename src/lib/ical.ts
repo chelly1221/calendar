@@ -1,4 +1,5 @@
 import ICAL from "ical.js";
+import { eventColor } from "./event-color";
 
 export type EventDraft = {
   uid: string;
@@ -11,6 +12,7 @@ export type EventDraft = {
   recurrence: string;
 };
 export type Occurrence = {
+  color?: string;
   key: string;
   start: Date;
   end: Date;
@@ -202,6 +204,8 @@ export function expandEvent(text: string, key: string, from: Date, until: Date):
         start: s,
         end: t,
         title: e.summary || "제목 없는 일정",
+        color: eventColor(e.component.getFirstPropertyValue("color"))
+          ?? eventColor(master.getFirstPropertyValue("color")),
         location: e.location || "",
         allDay: start.isDate,
         recurrenceId: rid.toString(),

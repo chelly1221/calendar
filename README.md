@@ -3,7 +3,7 @@
 note·연락처와 같은 시리즈의 개인용 CalDAV 앱입니다. Pretendard 글꼴과 검정·진회색 테마, 보라·분홍·주황 캘린더 아이콘을 사용합니다.
 
 - 웹: https://calendar.3chan.kr
-- Android: `kr.threechan.calendar`, [달력 0.2.1 설치](https://calendar.3chan.kr/downloads/calendar-0.2.1.apk)
+- Android: `kr.threechan.calendar`, [달력 0.2.2 설치](https://calendar.3chan.kr/downloads/calendar-0.2.2.apk)
 - 서버: `3chan@100.89.61.28`, `/srv/caldav`, Docker Compose
 - 내장 연결: `https://audax-vm.tail62313c.ts.net:8445`
 - 표준 CalDAV: `https://audax-vm.tail62313c.ts.net:8445/dav/calendar/default/`
@@ -26,6 +26,8 @@ note·연락처와 같은 시리즈의 개인용 CalDAV 앱입니다. Pretendard
 Android에서 **설정 → 홈 화면 위젯 → 위젯 추가**를 누르거나 홈 화면의 빈 곳을 길게 눌러 **위젯 → 달력 → 일정 달력**을 추가합니다. 기본은 화면을 넓게 쓰는 4×5 월간형이며, 가장자리를 늘리면 날짜마다 더 많은 일정이 보입니다. 제목은 한 줄로 표시하고 남는 일정은 `+N`으로 안내합니다.
 
 위젯 오른쪽 위 설정에서 표시할 캘린더, 글자 크기, 일정 개수, 주 시작일, 4~6주 배치, 시간 표시, 테마·색상·투명도와 날짜 터치 동작을 위젯별로 조절할 수 있습니다. 앱에서 저장·동기화하면 위젯에 반영됩니다. 앱이 닫힌 동안에는 마지막으로 저장된 일정을 보여 주며, 서버의 새 일정은 앱을 다시 열어 동기화해야 합니다. [위젯 설정과 검증 안내](docs/WIDGETS.md).
+
+일정 제목을 누르면 앱에서 해당 일정이 바로 열립니다. 반복 일정은 선택한 회차를 구분하며, `+N`을 누르면 그날 일정을 봅니다. 일정 자체에 색상이 지정되어 있으면 우선 적용하고, 없으면 소속 캘린더 색상을 사용합니다. 모든 표시 방식에서 원래 색상의 가는 표시선을 유지합니다. 업데이트 후 앱을 한 번 열면 기존 위젯에도 반영됩니다.
 
 ## 가져오기와 내보내기
 

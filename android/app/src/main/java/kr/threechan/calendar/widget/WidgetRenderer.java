@@ -61,6 +61,15 @@ public final class WidgetRenderer {
             .setData(Uri.parse("calendar-widget://navigate/"+id+"/"+action)).putExtra("appWidgetId",id);
         return PendingIntent.getBroadcast(c,0,i,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
     }
+    public static PendingIntent openEvent(Context c,int id,LocalDate day,WidgetCalendar.Entry event) {
+        Intent intent=new Intent(c,MainActivity.class).setAction("calendar.widget.OPEN")
+            .setData(new Uri.Builder().scheme("calendar-widget").authority("event").appendPath(Integer.toString(id))
+                .appendPath(day.toString()).appendQueryParameter("key",event.key).appendQueryParameter("rid",event.recurrenceId).build())
+            .putExtra("widget_date",day.toString()).putExtra("widget_action","event")
+            .putExtra("widget_key",event.key).putExtra("widget_recurrence_id",event.recurrenceId)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        return PendingIntent.getActivity(c,0,intent,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+    }
     public static RemoteViews render(Context c,int id,WidgetConfig cfg,JSONObject data,float width,float height,YearMonth month) {
         RemoteViews root=new RemoteViews(c.getPackageName(),R.layout.calendar_widget);
         int bg=background(c,cfg),fg=light(bg)?Color.rgb(30,30,30):Color.rgb(241,241,241),muted=blend(fg,bg,.7f);
@@ -140,16 +149,23 @@ public final class WidgetRenderer {
                     int tint=color(event.color,0xffb59ae8);
                     String style=cfg.text("eventStyle","tint");
                     int fill=style.equals("solid")?tint:blend(tint,bg,.22f);
-                    line.setInt(R.id.widget_event_title,"setBackgroundColor",style.equals("plain")?Color.TRANSPARENT:fill);
+                    line.setInt(R.id.widget_event,"setBackgroundColor",style.equals("plain")?Color.TRANSPARENT:fill);
+                    line.setViewVisibility(R.id.widget_event_color,View.VISIBLE);
+                    line.setInt(R.id.widget_event_color,"setBackgroundColor",tint);
                     int ink=style.equals("plain")?fg:light(fill)?0xff161616:0xfff5f5f5;
                     line.setTextColor(R.id.widget_event_title,outside?blend(ink,bg,.72f):ink);
+                    line.setContentDescription(R.id.widget_event,day+", "+title+", 일정 열기");
+                    if(id>=0&&!event.key.isEmpty())line.setOnClickPendingIntent(R.id.widget_event,openEvent(c,id,day,event));
                     cell.addView(R.id.widget_day_events,line);
                 }
                 if(overflow && slots>1){
                     RemoteViews more=new RemoteViews(c.getPackageName(),R.layout.widget_event);
                     more.setTextViewText(R.id.widget_event_title,"+"+(list.size()-shown));
                     more.setTextViewTextSize(R.id.widget_event_title,TypedValue.COMPLEX_UNIT_SP,text);
-                    more.setTextColor(R.id.widget_event_title,muted);cell.addView(R.id.widget_day_events,more);
+                    more.setTextColor(R.id.widget_event_title,muted);
+                    more.setContentDescription(R.id.widget_event,"일정 "+(list.size()-shown)+"개 더 보기");
+                    if(id>=0)more.setOnClickPendingIntent(R.id.widget_event,openDay(c,id,day,"day"));
+                    cell.addView(R.id.widget_day_events,more);
                 }else if(overflow||slots==0&&!list.isEmpty()) {
                     cell.setTextViewText(R.id.widget_date,day.getDayOfMonth()+" +"+(list.size()-shown));
                 }

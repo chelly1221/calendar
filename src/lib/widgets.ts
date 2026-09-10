@@ -4,7 +4,8 @@ import { liveQuery } from "dexie";
 import { db } from "./database";
 import { buildWidgetData } from "./widget-data";
 
-export type WidgetAction = { date: string; action: "day" | "new" | "sync" };
+import type { WidgetAction } from "./widget-action";
+export type { WidgetAction } from "./widget-action";
 const native = registerPlugin<{
   publish(options: { snapshot: ReturnType<typeof buildWidgetData> }): Promise<void>;
   configure(options: { widgetId?: number }): Promise<void>;
