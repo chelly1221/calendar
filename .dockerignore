@@ -5,6 +5,7 @@
 !server/package-lock.json
 !server/radicale.conf
 !server/radicale.Dockerfile
+!server/sitecustomize.py
 !dist-api/
 !dist-api/**
 !dist/
