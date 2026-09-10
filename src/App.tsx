@@ -55,9 +55,10 @@ import { exportICS } from "./lib/export";
 import Editor, { Modal } from "./Editor";
 import WidgetSettings from "./WidgetSettings";
 import { startWidgetBridge, type WidgetAction } from "./lib/widgets";
+import { restoreLocalProfile } from "./lib/local-session";
 
 const preview = import.meta.env.DEV && new URLSearchParams(location.search).has("preview");
-const DOWNLOAD = "https://calendar.3chan.kr/downloads/calendar-0.2.0.apk";
+const DOWNLOAD = "https://calendar.3chan.kr/downloads/calendar-0.2.1.apk";
 const weekday = ["일", "월", "화", "수", "목", "금", "토"];
 const timeFormat = new Intl.DateTimeFormat("ko-KR", {
   hour: "2-digit",
@@ -96,6 +97,8 @@ type Backup = {
 type EditorState = { record?: EventRecord; occurrence?: Occurrence };
 export default function App() {
   const [widgetAction, setWidgetAction] = useState<WidgetAction | null>(null);
+  const [booting, setBooting] = useState(!preview);
+  const connectionAttempt = useRef(0);
   const tail = useSyncExternalStore(subscribeTailscale, getTailscaleSnapshot),
     sync = useSyncExternalStore(subscribeSync, getSync);
   const [ready, setReady] = useState(false),
@@ -143,22 +146,24 @@ export default function App() {
   const connect = async () => {
     if (connectingRef.current) return;
     connectingRef.current = true;
+    const attempt = ++connectionAttempt.current;
     setConnecting(true);
     setError("");
     try {
       await initializeDatabase();
       await ensureTailscale();
       const me = await identity();
+      if (attempt !== connectionAttempt.current) return;
       await db.meta.put({ key: "profile", value: JSON.stringify(me) });
+      if (attempt !== connectionAttempt.current) return;
       setProfile(me);
       setCached(true);
       setReady(true);
       void syncNow();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "연결하지 못했어요. 다시 시도해 주세요.");
+      if (attempt === connectionAttempt.current) setError(e instanceof Error ? e.message : "연결하지 못했어요. 다시 시도해 주세요.");
     } finally {
-      connectingRef.current = false;
-      setConnecting(false);
+      if (attempt === connectionAttempt.current) { connectingRef.current = false; setConnecting(false); }
     }
   };
   useEffect(() => {
@@ -173,16 +178,18 @@ export default function App() {
       return;
     }
     let active = true;
-    void initializeDatabase()
-      .then(() => db.meta.get("profile"))
-      .then((row) => {
-        if (active && row) {
-          setProfile(JSON.parse(row.value));
+    void restoreLocalProfile()
+      .then((stored) => {
+        if (!active) return;
+        if (stored) {
+          setProfile(stored);
           setCached(true);
+          setReady(true);
           void connect();
         }
+        setBooting(false);
       })
-      .catch(() => setError("기기 저장소를 열지 못했어요. 브라우저 저장 공간을 확인해 주세요."));
+      .catch(() => { if (active) { setBooting(false); setError("기기 저장소를 열지 못했어요. 브라우저 저장 공간을 확인해 주세요."); } });
     return () => {
       active = false;
     };
@@ -345,6 +352,7 @@ export default function App() {
     }
   };
   const logout = () => {
+    connectionAttempt.current++; connectingRef.current = false; setConnecting(false);
     logoutTailscale();
     setReady(false);
     setSettings(false);
@@ -373,6 +381,7 @@ export default function App() {
       {event.recurring && <Repeat2 size={14} />}
     </button>
   );
+  if (booting) return <main className="access-page"><p role="status">기기에 저장된 일정을 여는 중…</p></main>;
   if (!ready)
     return (
       <main className="access-page">
@@ -909,11 +918,16 @@ export default function App() {
                 <button
                   className="icon-button"
                   aria-label="동기화 재시도"
-                  onClick={() => void syncNow()}
+                  onClick={() => void (tail.state === "Running" ? syncNow() : connect())}
                 >
                   <RefreshCw size={18} />
                 </button>
               </div>
+              {tail.state !== "Running" && <p className="field-hint">일정은 이 기기에서 계속 사용할 수 있어요. 연결되면 변경 내용을 동기화해요.</p>}
+              {(tail.loginUrl || tail.state === "NeedsMachineAuth") && <a className="secondary" href={tail.loginUrl || "https://console.tailscale.com/admin/machines"} target="_blank" rel="noopener noreferrer" onClick={e => {
+                if (Capacitor.isNativePlatform()) { e.preventDefault(); void openAuthBrowser(e.currentTarget.href).catch(showError); }
+              }}>동기화를 위해 Tailscale 다시 인증</a>}
+              {error && <p role="alert" className="field-hint">{error}</p>}
               <div className="backup-status">
                 <CloudCheck size={18} />
                 <span>
@@ -1009,7 +1023,7 @@ export default function App() {
               </p>
             </section>
             <section>
-              <h3>달력 0.2.0</h3>
+              <h3>달력 0.2.1</h3>
               <DownloadLink />
               <p className="field-hint">
                 노트 · 연락처 · 달력
