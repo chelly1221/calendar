@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Preserve the upstream font license verbatim.
+public/fonts/OFL.txt -whitespace

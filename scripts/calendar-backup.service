@@ -1,0 +1,12 @@
+[Unit]
+Description=Calendar consistent CalDAV backup to NAS
+After=docker.service tailscaled.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /srv/caldav/scripts/backup.py
+ExecStopPost=/usr/bin/docker compose --project-directory /srv/caldav up -d radicale
+WorkingDirectory=/srv/caldav
+UMask=0077
+TimeoutStartSec=10min

@@ -1,0 +1,66 @@
+services:
+  radicale:
+    build:
+      context: .
+      dockerfile: server/radicale.Dockerfile
+    image: calendar-radicale:0.1.0
+    container_name: calendar-radicale
+    restart: unless-stopped
+    networks: [private]
+    volumes: ['./state/radicale:/data']
+    read_only: true
+    tmpfs: ['/tmp:size=16m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 256m
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
+  api:
+    build: .
+    image: calendar:0.1.0
+    container_name: calendar-api
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8791
+      DAV_ORIGIN: http://radicale:5232
+    ports: ['127.0.0.1:8791:8791']
+    networks: [private]
+    volumes: ['./state/status:/status:ro']
+    depends_on: [radicale]
+    read_only: true
+    tmpfs: ['/tmp:size=8m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 256m
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8791/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  web:
+    image: calendar:0.1.0
+    container_name: calendar-web
+    command: ['node', 'web.mjs']
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8792
+      WEB_ROOT: /app/web
+      DOWNLOADS_ROOT: /downloads
+    ports: ['127.0.0.1:8792:8792']
+    networks: [web]
+    volumes: ['./releases:/downloads:ro']
+    read_only: true
+    tmpfs: ['/tmp:size=8m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 128m
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
+networks:
+  private:
+    driver: bridge
+  web:
+    external: true

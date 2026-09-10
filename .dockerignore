@@ -1,0 +1,11 @@
+*
+!Dockerfile
+!server/
+!server/package.json
+!server/package-lock.json
+!server/radicale.conf
+!server/radicale.Dockerfile
+!dist-api/
+!dist-api/**
+!dist/
+!dist/**

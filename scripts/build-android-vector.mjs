@@ -1,0 +1,6 @@
+import fs from 'node:fs/promises';
+await fs.writeFile('android/app/src/main/res/drawable/calendar_mark.xml',`<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+<path android:pathData="M33,35 L75,35 Q80,35 80,41 L80,76 Q80,81 74,81 L34,81 Q28,81 28,75 L28,41 Q28,35 33,35 M40,29 L40,40 M68,29 L68,40 M29,49 L79,49 M40,60 L43,60 M53,60 L56,60 M67,60 L68,60 M40,71 L43,71 M53,71 L56,71" android:fillColor="#00000000" android:strokeWidth="4.2" android:strokeLineCap="round" android:strokeLineJoin="round">
+<aapt:attr name="android:strokeColor"><gradient android:startX="28" android:startY="29" android:endX="80" android:endY="81" android:type="linear"><item android:offset="0" android:color="#ad7bf4"/><item android:offset="0.45" android:color="#ea88bb"/><item android:offset="0.73" android:color="#f08370"/><item android:offset="1" android:color="#efa55f"/></gradient></aapt:attr>
+</path></vector>`);
+await fs.writeFile('android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml','<layer-list xmlns:android="http://schemas.android.com/apk/res/android"><item android:drawable="@drawable/calendar_mark"/></layer-list>');
