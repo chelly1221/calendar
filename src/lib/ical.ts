@@ -19,6 +19,7 @@ export type Occurrence = {
   location: string;
   recurrenceId: string;
   recurring: boolean;
+  floating: boolean;
 };
 export const localDate = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -205,6 +206,7 @@ export function expandEvent(text: string, key: string, from: Date, until: Date):
         allDay: start.isDate,
         recurrenceId: rid.toString(),
         recurring: event.isRecurring(),
+        floating: !start.isDate && start.zone.tzid === "floating",
       });
   };
   if (!event.isRecurring()) {

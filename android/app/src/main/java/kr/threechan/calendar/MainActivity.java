@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override public void onCreate(Bundle savedInstanceState) {
         registerPlugin(AuthBrowserPlugin.class);
+        registerPlugin(CalendarWidgetsPlugin.class);
         authTabOpen = savedInstanceState != null && savedInstanceState.getBoolean("calendar.authTabOpen", false);
         authHostStopped = authTabOpen;
         // Version 0.1.1 uses Tailscale identity and never keeps an app session key.

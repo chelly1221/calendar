@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.BIND_APPWIDGET" />
+    <application>
+        <activity android:name="kr.threechan.calendar.widget.WidgetHarnessActivity" android:exported="true" android:theme="@style/AppTheme" />
+    </application>
+</manifest>

@@ -1,14 +1,19 @@
 apply plugin: 'com.android.application'
 
 android {
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
     namespace = "kr.threechan.calendar"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "kr.threechan.calendar"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        versionCode 2
+        versionName "0.2.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -47,6 +52,7 @@ repositories {
 }
 
 dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     // Keep test APK and app Kotlin runtime modules aligned after every Capacitor sync.
     implementation platform('org.jetbrains.kotlin:kotlin-bom:2.2.20')
     androidTestImplementation platform('org.jetbrains.kotlin:kotlin-bom:2.2.20')

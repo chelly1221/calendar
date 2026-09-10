@@ -53,9 +53,11 @@ import { identity, syncNow, getSync, subscribeSync, api, createCalendar } from "
 import { openAuthBrowser } from "./lib/auth-browser";
 import { exportICS } from "./lib/export";
 import Editor, { Modal } from "./Editor";
+import WidgetSettings from "./WidgetSettings";
+import { startWidgetBridge, type WidgetAction } from "./lib/widgets";
 
 const preview = import.meta.env.DEV && new URLSearchParams(location.search).has("preview");
-const DOWNLOAD = "https://calendar.3chan.kr/downloads/calendar-0.1.0.apk";
+const DOWNLOAD = "https://calendar.3chan.kr/downloads/calendar-0.2.0.apk";
 const weekday = ["일", "월", "화", "수", "목", "금", "토"];
 const timeFormat = new Intl.DateTimeFormat("ko-KR", {
   hour: "2-digit",
@@ -93,6 +95,7 @@ type Backup = {
 };
 type EditorState = { record?: EventRecord; occurrence?: Occurrence };
 export default function App() {
+  const [widgetAction, setWidgetAction] = useState<WidgetAction | null>(null);
   const tail = useSyncExternalStore(subscribeTailscale, getTailscaleSnapshot),
     sync = useSyncExternalStore(subscribeSync, getSync);
   const [ready, setReady] = useState(false),
@@ -119,6 +122,24 @@ export default function App() {
   const calendars = useLiveQuery(() => db.calendars.toArray(), []) ?? [defaultCalendar];
   const records = useLiveQuery(() => db.events.toArray(), []) ?? [];
   const pending = records.filter((e) => e.dirty).length;
+  useEffect(() => startWidgetBridge(setWidgetAction), []);
+  useEffect(() => {
+    const failed = () => setNotice("위젯에 최신 일정을 반영하지 못했어요. 앱을 다시 실행해 주세요.");
+    window.addEventListener("calendar-widget-error", failed);
+    return () => window.removeEventListener("calendar-widget-error", failed);
+  }, []);
+  useEffect(() => {
+    if (!ready || !widgetAction) return;
+    const day = new Date(widgetAction.date + "T00:00:00");
+    if (Number.isFinite(+day)) {
+      setAnchor(day); setSelected(day); setView("month"); setQuery(""); setSettings(false);
+      if (widgetAction.action === "new") setEditor({});
+      else if (widgetAction.action === "day")
+        setTimeout(() => document.querySelector(".day-panel")?.scrollIntoView({ block: "start" }), 100);
+    }
+    if (widgetAction.action === "sync") void syncNow();
+    setWidgetAction(null);
+  }, [ready, widgetAction]);
   const connect = async () => {
     if (connectingRef.current) return;
     connectingRef.current = true;
@@ -862,6 +883,7 @@ export default function App() {
       {settings && (
         <Modal title="설정" onClose={() => setSettings(false)}>
           <div className="settings-body">
+            {Capacitor.getPlatform() === "android" && <WidgetSettings />}
             <section>
               <h3>내 계정</h3>
               <div className="setting-row">
@@ -987,7 +1009,7 @@ export default function App() {
               </p>
             </section>
             <section>
-              <h3>달력 0.1.0</h3>
+              <h3>달력 0.2.0</h3>
               <DownloadLink />
               <p className="field-hint">
                 노트 · 연락처 · 달력
