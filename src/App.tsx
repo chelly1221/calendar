@@ -1,3 +1,6 @@
+import { startBackgroundSync } from "./lib/background-sync";
+import BackgroundSyncSettings from "./BackgroundSyncSettings";
+import DeviceCalendarSettings from "./DeviceCalendarSettings";
 import {
   useState,
   useEffect,
@@ -8,7 +11,6 @@ import {
 } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Capacitor } from "@capacitor/core";
-import { App as NativeApp } from "@capacitor/app";
 import {
   Plus,
   ChevronLeft,
@@ -59,7 +61,7 @@ import { restoreLocalProfile } from "./lib/local-session";
 import { resolveWidgetEvent } from "./lib/widget-action";
 
 const preview = import.meta.env.DEV && new URLSearchParams(location.search).has("preview");
-const DOWNLOAD = "https://calendar.3chan.kr/downloads/calendar-0.2.2.apk";
+const DOWNLOAD = "https://calendar.3chan.kr/downloads/calendar-0.2.3.apk";
 const weekday = ["일", "월", "화", "수", "목", "금", "토"];
 const timeFormat = new Intl.DateTimeFormat("ko-KR", {
   hour: "2-digit",
@@ -97,6 +99,7 @@ type Backup = {
 };
 type EditorState = { record?: EventRecord; occurrence?: Occurrence };
 export default function App() {
+  useEffect(startBackgroundSync, []);
   const [widgetAction, setWidgetAction] = useState<WidgetAction | null>(null);
   const [booting, setBooting] = useState(!preview);
   const connectionAttempt = useRef(0);
@@ -216,17 +219,12 @@ export default function App() {
     window.addEventListener("online", pull);
     document.addEventListener("visibilitychange", pull);
     const stop = subscribeTailEvents(pull);
-    const native = Capacitor.isNativePlatform()
-      ? NativeApp.addListener("appStateChange", ({ isActive }) => {
-          if (isActive) pull();
-        })
-      : null;
+    pull();
     return () => {
       clearInterval(timer);
       window.removeEventListener("online", pull);
       document.removeEventListener("visibilitychange", pull);
       stop();
-      void native?.then((l) => l.remove());
     };
   }, [ready]);
   useEffect(() => {
@@ -906,6 +904,8 @@ export default function App() {
         <Modal title="설정" onClose={() => setSettings(false)}>
           <div className="settings-body">
             {Capacitor.getPlatform() === "android" && <WidgetSettings />}
+            <BackgroundSyncSettings />
+            <DeviceCalendarSettings />
             <section>
               <h3>내 계정</h3>
               <div className="setting-row">
@@ -1036,7 +1036,7 @@ export default function App() {
               </p>
             </section>
             <section>
-              <h3>달력 0.2.2</h3>
+              <h3>달력 0.2.3</h3>
               <DownloadLink />
               <p className="field-hint">
                 노트 · 연락처 · 달력

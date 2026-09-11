@@ -1,6 +1,7 @@
 import { db, type Calendar } from "./database";
 import { synchronize, type Remote } from "./sync-engine";
 import { tailscaleFetch, getTailscaleSnapshot } from "./tailscale";
+import { syncDeviceCalendars } from "./device-calendars";
 export const ORIGIN = "https://audax-vm.tail62313c.ts.net:8445";
 type Status = {
   busy: boolean;
@@ -81,6 +82,11 @@ export async function refreshCalendars() {
       await db.calendars.put({ ...c, hidden: old?.hidden });
     }
   });
+  const known=new Set(calendars.map(c=>c.id));
+  for(const calendar of await db.calendars.toArray())if(calendar.id.startsWith('device-')&&!known.has(calendar.id)){
+    const created=await api('/api/calendars/'+encodeURIComponent(calendar.id),{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({name:calendar.name.slice(0,80),color:calendar.color})});
+    if(!created.ok)throw new Error('기기 캘린더를 서버에 연결하지 못했어요.');
+  }
 }
 export async function createCalendar(name: string, color: string) {
   const id = crypto.randomUUID();
@@ -97,14 +103,18 @@ export function syncNow() {
   if (running) return running;
   if (getTailscaleSnapshot().state !== "Running") {
     publish({ message: "기기에 저장됨 · 연결되면 동기화", error: false });
-    return Promise.resolve();
+    return navigator.locks.request('calendar-sync',async()=>{try{await syncDeviceCalendars();}catch(e){publish({error:true,message:e instanceof Error?e.message:'기기 캘린더를 확인해 주세요.'});}});
   }
   running = (async () => {
     publish({ busy: true, error: false, message: "일정 동기화 중" });
     try {
+      let deviceError='';
+      const deviceSync=async()=>{try{await syncDeviceCalendars();}catch(e){deviceError=e instanceof Error?e.message:'기기 캘린더를 확인해 주세요.';}};
       const result = await navigator.locks.request("calendar-sync", async () => {
+        await deviceSync();
         await refreshCalendars();
         const first = await synchronize(db, remote);
+        await deviceSync();
         if (first.conflicts) {
           const second = await synchronize(db, remote);
           return { ...second, conflicts: first.conflicts + second.conflicts };
@@ -114,13 +124,14 @@ export function syncNow() {
       const lastSync = Date.now();
       await db.meta.put({ key: "lastSync", value: String(lastSync) });
       publish({
+        error:Boolean(deviceError),
         lastSync,
         conflicts: state.conflicts + result.conflicts,
-        message: result.conflicts
+        message: deviceError || (result.conflicts
           ? "동시 수정한 일정을 충돌 사본으로 보존했어요."
           : result.pending
             ? "남은 일정 동기화 대기"
-            : "모든 일정 동기화됨",
+            : "모든 일정 동기화됨"),
       });
     } catch (e) {
       publish({ error: true, message: e instanceof Error ? e.message : "연결을 확인해 주세요." });

@@ -108,7 +108,7 @@ function stopWatch() {}
 function startWatch() { emit({ type: 'event', event: 'open' }); }
 async function receive(port, message) {
   const { type, id } = message;
-  if (type === 'init') { port.postMessage({ type: 'state', value: state }); await start(); return; }
+  if (type === 'init') { interactive = message.interactive !== false; port.postMessage({ type: 'state', value: state }); await start(); return; }
   if (type === 'cancel') { if (requests.get(id) === port) { engine?.cancel(id); requests.delete(id); } return; }
   if (type === 'close') { ports.delete(port); if (!ports.size) { await writes; self.close(); } return; }
   if (type === 'login') { await start(); await logoutWork; interactive = true; engine.login(); return; }

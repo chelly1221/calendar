@@ -77,7 +77,7 @@ function setup() {
         );
     }
   };
-  port.postMessage({ type: "init" });
+  port.postMessage({ type: "init", interactive: (typeof window === "undefined" || !window.BackgroundSyncNative) });
   if (typeof window !== "undefined")
     window.addEventListener("pagehide", (event) => {
       if (!event.persisted) port?.postMessage({ type: "close" });
@@ -88,7 +88,7 @@ export async function ensureTailscale(): Promise<void> {
   setup();
   if (snapshot.state === "Running") return;
   if (snapshot.state === "Error") throw new Error(snapshot.message);
-  if (existing && (snapshot.state === "NeedsLogin" || snapshot.state === "Stopped"))
+  if (existing && (typeof window === "undefined" || !window.BackgroundSyncNative) && (snapshot.state === "NeedsLogin" || snapshot.state === "Stopped"))
     port?.postMessage({ type: "login" });
   return new Promise((resolve, reject) => {
     const finish = (error?: Error) => {
@@ -118,7 +118,9 @@ export function suspendTailscale() {
     work.reject(new Error("앱이 백그라운드로 이동했어요."));
   }
   pending.clear();
-  if (owner instanceof Worker) owner.terminate();
+  if (port) port.onmessage = null;
+  owner.onerror = null;
+  if (owner instanceof Worker) { owner.postMessage({ type: "close" }); const closing=owner; setTimeout(()=>closing.terminate(),1000); }
   else {
     owner.port.postMessage({ type: "close" });
     owner.port.close();
