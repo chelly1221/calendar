@@ -1,8 +1,11 @@
+import { monthRange } from "./lib/month-range";
+import Navigation, { useMobileNavigation } from "./Navigation";
 import { startBackgroundSync } from "./lib/background-sync";
 import BackgroundSyncSettings from "./BackgroundSyncSettings";
 import DeviceCalendarSettings from "./DeviceCalendarSettings";
 import {
   useState,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -16,10 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CalendarDays,
-  Columns3,
-  List,
-  Search,
-  Settings2,
+  Settings,
   RefreshCw,
   CloudCheck,
   CloudOff,
@@ -28,7 +28,6 @@ import {
   Download,
   LoaderCircle,
   Check,
-  Menu,
   X,
   Repeat2,
   MapPin,
@@ -46,6 +45,7 @@ import {
 import { addDays, localDate, expandEvent, importEvents, type Occurrence } from "./lib/ical";
 import {
   ensureTailscale,
+  recoverTailscale,
   getTailscaleSnapshot,
   subscribeTailscale,
   logoutTailscale,
@@ -61,7 +61,7 @@ import { restoreLocalProfile } from "./lib/local-session";
 import { resolveWidgetEvent } from "./lib/widget-action";
 
 const preview = import.meta.env.DEV && new URLSearchParams(location.search).has("preview");
-const DOWNLOAD = "https://calendar.3chan.kr/downloads/calendar-0.2.3.apk";
+const DOWNLOAD = "https://calendar.3chan.kr/downloads/calendar-0.2.4.apk";
 const weekday = ["일", "월", "화", "수", "목", "금", "토"];
 const timeFormat = new Intl.DateTimeFormat("ko-KR", {
   hour: "2-digit",
@@ -110,11 +110,12 @@ export default function App() {
     [cached, setCached] = useState(false),
     [connecting, setConnecting] = useState(false),
     [error, setError] = useState("");
-  const [view, setView] = useState<"month" | "week" | "agenda">("month"),
-    [selected, setSelected] = useState(startOfDay(new Date())),
+  const [selected, setSelected] = useState(startOfDay(new Date())),
     [anchor, setAnchor] = useState(startOfDay(new Date()));
-  const [query, setQuery] = useState(""),
-    [settings, setSettings] = useState(false),
+  const [dayOpen, setDayOpen] = useState(false);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [pillLimit, setPillLimit] = useState(2);
+  const [settings, setSettings] = useState(false),
     [sidebar, setSidebar] = useState(false),
     [editor, setEditor] = useState<EditorState | null>(null),
     [notice, setNotice] = useState("");
@@ -124,6 +125,9 @@ export default function App() {
     [backup, setBackup] = useState<Backup | null>(null),
     [importTarget, setImportTarget] = useState("default"),
     [importing, setImporting] = useState(false);
+  const mobileNavigation = useMobileNavigation();
+  const closeSettings = useCallback(() => { setSettings(false); setSidebar(false); }, []);
+  const openSettings = () => { setSidebar(false); setSettings(true); };
   const fileRef = useRef<HTMLInputElement>(null),
     connectingRef = useRef(false);
   const calendars = useLiveQuery(() => db.calendars.toArray(), []) ?? [defaultCalendar];
@@ -139,10 +143,10 @@ export default function App() {
     if (!ready || !widgetAction) return;
     const day = new Date(widgetAction.date + "T00:00:00");
     if (Number.isFinite(+day)) {
-      setAnchor(day); setSelected(day); setView("month"); setQuery(""); setSettings(false);
+      setAnchor(day); setSelected(day); setSettings(false);
       if (widgetAction.action === "new") setEditor({});
       else if (widgetAction.action === "day")
-        setTimeout(() => document.querySelector(".day-panel")?.scrollIntoView({ block: "start" }), 100);
+        setDayOpen(true);
     }
     if (widgetAction.action === "sync") void syncNow();
     if (widgetAction.action === "event") {
@@ -212,17 +216,28 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!ready || preview) return;
+    let stopped = false, refreshing = false;
     const pull = () => {
-      if (document.visibilityState !== "hidden") void syncNow();
+      // Android delegates inactive syncing to its native background worker.
+      // Web tabs continue polling while the browser allows timers to run.
+      if (Capacitor.isNativePlatform() && document.visibilityState === "hidden") return;
+      if (refreshing) return;
+      refreshing = true;
+      void recoverTailscale().catch(() => {}).then(async () => {
+        if (!stopped && !(Capacitor.isNativePlatform() && document.visibilityState === "hidden")) await syncNow();
+      }).catch(() => {}).finally(() => { refreshing = false; });
     };
     const timer = setInterval(pull, 30000);
     window.addEventListener("online", pull);
+    window.addEventListener("pageshow", pull);
     document.addEventListener("visibilitychange", pull);
     const stop = subscribeTailEvents(pull);
     pull();
     return () => {
+      stopped = true;
       clearInterval(timer);
       window.removeEventListener("online", pull);
+      window.removeEventListener("pageshow", pull);
       document.removeEventListener("visibilitychange", pull);
       stop();
     };
@@ -246,6 +261,8 @@ export default function App() {
         !ready ||
         settings ||
         editor ||
+        sidebar ||
+        dayOpen ||
         e.ctrlKey ||
         e.metaKey ||
         e.altKey ||
@@ -262,22 +279,24 @@ export default function App() {
       }
       if (e.key === "Escape") {
         setSidebar(false);
-        setQuery("");
       }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [ready, settings, editor]);
-  const range = useMemo(() => {
-    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1),
-      week = addDays(startOfDay(anchor), -anchor.getDay());
-    const from = view === "week" ? week : addDays(first, -first.getDay());
-    return {
-      from,
-      until: addDays(from, view === "week" ? 7 : 42),
-      days: Array.from({ length: view === "week" ? 7 : 42 }, (_, i) => addDays(from, i)),
+  }, [ready, settings, editor, sidebar, dayOpen]);
+  const range = useMemo(() => monthRange(anchor), [anchor]);
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!ready || !grid) return;
+    const resize = () => {
+      const rowHeight = grid.clientHeight / range.weeks;
+      setPillLimit(Math.max(1, Math.min(4, Math.floor((rowHeight - 60) / 25))));
     };
-  }, [anchor, view]);
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [ready, range.weeks]);
   const expanded = useMemo(() => {
     const events: Occurrence[] = [];
     let failures = 0;
@@ -285,13 +304,7 @@ export default function App() {
       if (record.deleted || calendars.find((c) => c.id === record.calendarId)?.hidden) continue;
       try {
         const list = expandEvent(record.ical, record.key, range.from, range.until);
-        events.push(
-          ...list.filter(
-            (e) =>
-              !query ||
-              `${e.title} ${e.location} ${record.ical}`.toLowerCase().includes(query.toLowerCase()),
-          ),
-        );
+        events.push(...list);
       } catch {
         failures++;
       }
@@ -303,7 +316,7 @@ export default function App() {
         a.title.localeCompare(b.title, "ko"),
     );
     return { events, failures };
-  }, [records, calendars, range, query]);
+  }, [records, calendars, range]);
   const dayEvents = expanded.events.filter((e) => onDay(e, selected));
   const eventCalendar = (e: Occurrence) =>
     calendars.find((c) => c.id === records.find((r) => r.key === e.key)?.calendarId) ??
@@ -314,21 +327,14 @@ export default function App() {
     if (record) setEditor({ record, occurrence: event });
   };
   const move = (direction: number) => {
-    const next =
-      view === "week"
-        ? addDays(anchor, direction * 7)
-        : new Date(anchor.getFullYear(), anchor.getMonth() + direction, 1);
+    const next = new Date(anchor.getFullYear(), anchor.getMonth() + direction, 1);
     setAnchor(next);
     setSelected(next);
   };
   const chooseDate = (date: Date) => {
     setSelected(date);
-    if (date.getMonth() !== anchor.getMonth() && view !== "week") setAnchor(date);
-  };
-  const today = () => {
-    const d = startOfDay(new Date());
-    setAnchor(d);
-    setSelected(d);
+    setDayOpen(true);
+    if (date.getMonth() !== anchor.getMonth()) setAnchor(date);
   };
   const showError = (e: unknown) =>
     setNotice(e instanceof Error ? e.message : "작업을 완료하지 못했어요. 다시 시도해 주세요.");
@@ -376,7 +382,7 @@ export default function App() {
       key={event.key + event.recurrenceId}
       className="event-row"
       style={colorStyle(event.color ?? eventCalendar(event).color)}
-      onClick={() => openEvent(event)}
+      onClick={(e) => { e.currentTarget.focus(); openEvent(event); }}
     >
       <span className="event-dot" />
       <span className="event-row-content">
@@ -486,435 +492,19 @@ export default function App() {
     );
   return (
     <div className="workspace">
-      {sidebar && (
-        <button
-          className="sidebar-shade"
-          aria-label="메뉴 닫기"
-          onClick={() => setSidebar(false)}
-        />
-      )}
-      <aside className={`sidebar ${sidebar ? "open" : ""}`} aria-label="달력 탐색">
-        <div className="sidebar-brand">
-          <Brand />
-          <button
-            className="icon-button mobile-only"
-            aria-label="메뉴 닫기"
-            onClick={() => setSidebar(false)}
-          >
-            <X size={19} />
-          </button>
-        </div>
-        <button
-          className="primary new-event"
-          onClick={() => {
-            setEditor({});
-            setSidebar(false);
-          }}
-        >
-          <Plus size={19} /> 새 일정 <kbd>N</kbd>
-        </button>
-        <nav className="view-nav">
-          {(
-            [
-              ["month", "월간", CalendarDays],
-              ["week", "주간", Columns3],
-              ["agenda", "일정 목록", List],
-            ] as const
-          ).map(([id, label, Icon]) => (
-            <button
-              key={id}
-              className={`nav-item ${view === id ? "selected" : ""}`}
-              aria-current={view === id ? "page" : undefined}
-              onClick={() => {
-                setView(id);
-                setSidebar(false);
-              }}
-            >
-              <Icon size={18} />
-              {label}
-            </button>
-          ))}
-        </nav>
-        <div className="calendar-list-head">
-          <h2>내 캘린더</h2>
-          <button
-            className="icon-button"
-            aria-label="캘린더 추가"
-            onClick={() => setSettings(true)}
-          >
-            <Plus size={16} />
-          </button>
-        </div>
-        <div className="calendar-list">
-          {calendars.map((c) => (
-            <label key={c.id} className="calendar-toggle" style={colorStyle(c.color)}>
-              <input
-                type="checkbox"
-                checked={!c.hidden}
-                onChange={() => void db.calendars.update(c.id, { hidden: !c.hidden })}
-              />
-              <span>{c.name}</span>
-            </label>
-          ))}
-        </div>
-        <p className="sidebar-hint">
-          날짜를 선택하고
-          <br />
-          새로운 하루를 기록해 보세요.
-        </p>
-        <div className="sidebar-bottom">
-          <button
-            className="sync-detail"
-            onClick={() => void syncNow()}
-            disabled={sync.busy}
-            title={sync.message}
-          >
-            {sync.busy ? (
-              <RefreshCw className="spin" size={17} />
-            ) : tail.state === "Running" && !sync.error ? (
-              <CloudCheck size={17} />
-            ) : (
-              <CloudOff size={17} />
-            )}
-            <span>
-              <strong>
-                {sync.busy
-                  ? "동기화 중"
-                  : pending
-                    ? `${pending}개 변경 동기화 대기`
-                    : sync.error
-                      ? "연결 확인 필요"
-                      : sync.lastSync
-                        ? "동기화 완료"
-                        : "기기에 저장됨"}
-              </strong>
-              <small>
-                {sync.lastSync
-                  ? `${timeFormat.format(sync.lastSync)} 마지막 동기화`
-                  : "연결되면 자동 동기화"}
-              </small>
-            </span>
-          </button>
-          <button className="nav-item" onClick={() => setSettings(true)}>
-            <Settings2 size={18} />
-            설정<span className="account-initial">{profile?.name?.slice(0, 1) || "나"}</span>
-          </button>
-        </div>
-      </aside>
-      <main className="main-content">
-        <header className="toolbar">
-          <div className="month-title">
-            <button
-              className="icon-button mobile-only"
-              aria-label="메뉴 열기"
-              onClick={() => setSidebar(true)}
-            >
-              <Menu size={21} />
-            </button>
-            <h1>
-              <span className="year">{anchor.getFullYear()}년</span> {anchor.getMonth() + 1}월
-            </h1>
-            <div className="date-navigation">
-              <button
-                className="icon-button"
-                aria-label={view === "week" ? "이전 주" : "이전 달"}
-                onClick={() => move(-1)}
-              >
-                <ChevronLeft size={20} />
-              </button>
-              <button
-                className="icon-button"
-                aria-label={view === "week" ? "다음 주" : "다음 달"}
-                onClick={() => move(1)}
-              >
-                <ChevronRight size={20} />
-              </button>
-            </div>
-            <button className="today-button" onClick={today}>
-              오늘
-            </button>
-          </div>
-          <div className="toolbar-right">
-            <label className="search-box">
-              <Search size={17} />
-              <input
-                aria-label="일정 검색"
-                placeholder="일정 검색"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              {query && (
-                <button
-                  className="icon-button"
-                  aria-label="검색 지우기"
-                  onClick={() => setQuery("")}
-                >
-                  <X size={15} />
-                </button>
-              )}
-            </label>
-            <select
-              aria-label="보기 방식"
-              value={view}
-              onChange={(e) => setView(e.target.value as typeof view)}
-            >
-              <option value="month">월간</option>
-              <option value="week">주간</option>
-              <option value="agenda">일정 목록</option>
-            </select>
-            <button
-              className="icon-button"
-              aria-label="지금 동기화"
-              onClick={() => void syncNow()}
-              disabled={sync.busy}
-            >
-              <RefreshCw size={18} className={sync.busy ? "spin" : ""} />
-            </button>
-          </div>
-        </header>
-        {(sync.error || expanded.failures > 0) && (
-          <div className="status-bar" role="status">
-            {expanded.failures
-              ? `${expanded.failures}개 일정의 반복 규칙을 표시하지 못했어요. 원본은 보관되어 있어요.`
-              : sync.message}
-            <button className="text-button" onClick={() => void syncNow()}>
-              다시 시도
-            </button>
-          </div>
-        )}
-        <div className={`calendar-body view-${view}`}>
-          {view === "month" ? (
-            <section
-              className="month-calendar"
-              aria-label={`${anchor.getFullYear()}년 ${anchor.getMonth() + 1}월 달력`}
-            >
-              <div className="weekday-row">
-                {weekday.map((d, i) => (
-                  <span key={d} className={i === 0 ? "sunday" : i === 6 ? "saturday" : ""}>
-                    {d}
-                  </span>
-                ))}
-              </div>
-              <div className="month-grid">
-                {range.days.map((day) => {
-                  const items = expanded.events.filter((e) => onDay(e, day));
-                  return (
-                    <div
-                      key={localDate(day)}
-                      className={`day-cell ${day.getMonth() !== anchor.getMonth() ? "outside" : ""} ${sameDay(day, selected) ? "chosen" : ""}`}
-                    >
-                      <button
-                        className="day-select"
-                        aria-label={dateLabel(day) + (sameDay(day, new Date()) ? " 오늘" : "")}
-                        aria-pressed={sameDay(day, selected)}
-                        onClick={() => chooseDate(day)}
-                        onDoubleClick={() => {
-                          chooseDate(day);
-                          setEditor({});
-                        }}
-                      >
-                        <span
-                          className={`day-number ${sameDay(day, new Date()) ? "is-today" : ""} ${day.getDay() === 0 ? "sunday" : day.getDay() === 6 ? "saturday" : ""}`}
-                        >
-                          {day.getDate()}
-                        </span>
-                      </button>
-                      <div className="day-events">
-                        {items.slice(0, 3).map((event) => (
-                          <button
-                            key={event.key + event.recurrenceId}
-                            className={`event-chip ${event.allDay ? "all-day" : ""}`}
-                            style={colorStyle(event.color ?? eventCalendar(event).color)}
-                            onClick={() => openEvent(event)}
-                          >
-                            <span className="event-dot" />
-                            {!event.allDay && <time>{timeFormat.format(event.start)}</time>}
-                            <span>{event.title}</span>
-                          </button>
-                        ))}
-                        {items.length > 3 && (
-                          <button className="more-events" onClick={() => chooseDate(day)}>
-                            +{items.length - 3}개 더 보기
-                          </button>
-                        )}
-                      </div>
-                      <div className="mobile-dots" aria-hidden="true">
-                        {items.slice(0, 4).map((e, i) => (
-                          <i key={i} style={{ background: e.color ?? eventCalendar(e).color }} />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          ) : view === "week" ? (
-            <section className="week-calendar" aria-label="주간 달력">
-              {range.days.map((day) => (
-                <div
-                  className={`week-column ${sameDay(day, selected) ? "chosen" : ""}`}
-                  key={localDate(day)}
-                >
-                  <button className="week-heading" onClick={() => chooseDate(day)}>
-                    <span>{weekday[day.getDay()]}</span>
-                    <strong className={sameDay(day, new Date()) ? "is-today" : ""}>
-                      {day.getDate()}
-                    </strong>
-                  </button>
-                  <div className="week-events">
-                    {expanded.events
-                      .filter((e) => onDay(e, day))
-                      .map((event) => (
-                        <button
-                          key={event.key + event.recurrenceId}
-                          className="week-event"
-                          style={colorStyle(event.color ?? eventCalendar(event).color)}
-                          onClick={() => openEvent(event)}
-                        >
-                          <span className="event-dot" />
-                          <strong>{event.title}</strong>
-                          <time>
-                            {event.allDay
-                              ? "하루 종일"
-                              : timeFormat.format(event.start) +
-                                " – " +
-                                timeFormat.format(event.end)}
-                          </time>
-                        </button>
-                      ))}
-                    <button
-                      className="add-day"
-                      aria-label={`${dateLabel(day)} 일정 추가`}
-                      onClick={() => {
-                        setSelected(day);
-                        setEditor({});
-                      }}
-                    >
-                      <Plus size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </section>
-          ) : (
-            <section className="agenda-list" aria-label="일정 목록">
-              {query && (
-                <p className="search-caption">
-                  표시 기간에서 “{query}” 검색 · {expanded.events.length}개 일정
-                </p>
-              )}
-              {range.days
-                .filter((d) => expanded.events.some((e) => onDay(e, d)))
-                .map((day) => (
-                  <div className="agenda-day" key={localDate(day)}>
-                    <div className="agenda-date">
-                      <strong className={sameDay(day, new Date()) ? "is-today" : ""}>
-                        {day.getDate()}
-                      </strong>
-                      <span>
-                        {day.getMonth() + 1}월 {weekday[day.getDay()]}요일
-                      </span>
-                    </div>
-                    <div>{expanded.events.filter((e) => onDay(e, day)).map(eventRow)}</div>
-                  </div>
-                ))}
-              {!expanded.events.length && (
-                <div className="empty-agenda">
-                  <CalendarDays size={36} />
-                  <h2>{query ? "검색 결과가 없어요." : "아직 일정이 없어요."}</h2>
-                  <p>
-                    {query
-                      ? "다른 검색어나 다른 달을 살펴보세요."
-                      : "작은 약속부터, 하루를 채워 보세요."}
-                  </p>
-                  <button className="secondary" onClick={() => setEditor({})}>
-                    <Plus size={17} /> 새 일정
-                  </button>
-                </div>
-              )}
-            </section>
-          )}
-          {view !== "agenda" && (
-            <aside className="day-panel" aria-label="선택한 날짜의 일정">
-              <div className="day-panel-title">
-                <div>
-                  <p>
-                    {selected.getFullYear()}년 {selected.getMonth() + 1}월
-                  </p>
-                  <h2>
-                    {selected.getDate()}일 <span>{weekday[selected.getDay()]}요일</span>
-                    {sameDay(selected, new Date()) && <small>오늘</small>}
-                  </h2>
-                </div>
-                <button
-                  className="icon-button"
-                  aria-label="선택일 일정 추가"
-                  onClick={() => setEditor({})}
-                >
-                  <Plus size={20} />
-                </button>
-              </div>
-              <p className="day-count">
-                {dayEvents.length
-                  ? `${dayEvents.length}개의 일정`
-                  : query
-                    ? "검색된 일정 없음"
-                    : "여유로운 하루"}
-              </p>
-              {dayEvents.length ? (
-                dayEvents.map(eventRow)
-              ) : (
-                <div className="empty-day">
-                  <CalendarDays size={28} />
-                  <p>{query ? "이 날에는 검색 결과가 없어요." : "아직 예정된 일정이 없어요."}</p>
-                  <button className="text-button" onClick={() => setEditor({})}>
-                    <Plus size={15} /> 일정 추가하기
-                  </button>
-                </div>
-              )}
-              <div className="day-panel-bottom">
-                <LockKeyhole size={13} />
-                <span>나의 서버에 안전하게 보관</span>
-              </div>
-            </aside>
-          )}
-        </div>
-        <button
-          className="mobile-add primary"
-          aria-label="새 일정 추가"
-          onClick={() => setEditor({})}
-        >
-          <Plus size={24} />
-        </button>
-      </main>
-      {editor && (
-        <Editor
-          record={editor.record}
-          date={selected}
-          calendars={calendars}
-          occurrence={editor.occurrence}
-          onClose={() => setEditor(null)}
-          onSaved={(message) => {
-            setEditor(null);
-            setNotice(message);
-          }}
-        />
-      )}
-      {settings && (
-        <Modal title="설정" onClose={() => setSettings(false)}>
-          <div className="settings-body">
+      <Navigation open={sidebar} onOpenChange={setSidebar} label="달력 탐색" hidden={!!editor} onPanelClose={closeSettings} panel={settings ? <section id="settings-panel" className="settings-page day-detail calendar-settings-panel" aria-labelledby="settings-title"><div className="modal-head"><h2 id="settings-title">설정</h2></div>          <div className="settings-body">
             {Capacitor.getPlatform() === "android" && <WidgetSettings />}
             <BackgroundSyncSettings />
             <DeviceCalendarSettings />
             <section>
-              <h3>내 계정</h3>
+              <h3>계정</h3>
               <div className="setting-row">
                 <span>
                   <strong>{profile?.name || "내 계정"}</strong>
                   <small>{profile?.login}</small>
                 </span>
                 <button className="secondary" onClick={logout}>
-                  <LogOut size={15} /> 로그아웃
+                  로그아웃
                 </button>
               </div>
               <p className="field-hint">로그아웃해도 기기의 일정은 보관돼요.</p>
@@ -924,25 +514,23 @@ export default function App() {
               <div className="setting-row">
                 <span>
                   <strong>
-                    {tail.state === "Running" ? "내장 Tailscale 연결됨" : "기기에서 사용 중"}
+                    Tailscale
                   </strong>
-                  <small>{sync.message}</small>
+                  <small>{tail.state === "Running" ? sync.message : "연결되면 자동 동기화"}</small>
                 </span>
-                <button
+                {sync.error && <button
                   className="icon-button"
                   aria-label="동기화 재시도"
                   onClick={() => void (tail.state === "Running" ? syncNow() : connect())}
                 >
                   <RefreshCw size={18} />
-                </button>
+                </button>}
               </div>
-              {tail.state !== "Running" && <p className="field-hint">일정은 이 기기에서 계속 사용할 수 있어요. 연결되면 변경 내용을 동기화해요.</p>}
               {(tail.loginUrl || tail.state === "NeedsMachineAuth") && <a className="secondary" href={tail.loginUrl || "https://console.tailscale.com/admin/machines"} target="_blank" rel="noopener noreferrer" onClick={e => {
                 if (Capacitor.isNativePlatform()) { e.preventDefault(); void openAuthBrowser(e.currentTarget.href).catch(showError); }
               }}>동기화를 위해 Tailscale 다시 인증</a>}
               {error && <p role="alert" className="field-hint">{error}</p>}
               <div className="backup-status">
-                <CloudCheck size={18} />
                 <span>
                   NAS 백업
                   <small>
@@ -955,14 +543,11 @@ export default function App() {
                 </span>
                 {backup?.ok && <Check size={16} />}
               </div>
-              <p className="field-hint">
-                매일 오전 4시(한국 시간) · 최근 30개 보관
-                <br />
-                일정은 서버에 저장하고 NAS에 별도로 백업해요.
-              </p>
-              <p className="field-hint">
-                표시 시간대 · {Intl.DateTimeFormat().resolvedOptions().timeZone}
-              </p>
+              <details className="settings-note">
+                <summary>백업 안내</summary>
+                <p className="field-hint">매일 오전 4시(한국 시간) · 최근 30개 보관<br />일정은 서버에 저장하고 NAS에 별도로 백업해요.</p>
+              </details>
+              <div className="settings-timezone"><span>표시 시간대</span><span>{Intl.DateTimeFormat().resolvedOptions().timeZone}</span></div>
             </section>
             <section>
               <h3>캘린더 추가</h3>
@@ -996,7 +581,7 @@ export default function App() {
               )}
             </section>
             <section>
-              <h3>일정 가져오기·내보내기</h3>
+              <h3>가져오기·내보내기</h3>
               <label className="import-label">
                 가져올 캘린더
                 <select value={importTarget} onChange={(e) => setImportTarget(e.target.value)}>
@@ -1007,7 +592,7 @@ export default function App() {
                   ))}
                 </select>
               </label>
-              <div className="button-row">
+              <div className="button-row settings-transfer">
                 <button
                   className="secondary"
                   disabled={importing}
@@ -1031,21 +616,177 @@ export default function App() {
                 accept=".ics,text/calendar"
                 onChange={(e) => void importFile(e.target.files?.[0])}
               />
-              <p className="field-hint">
-                같은 캘린더에 같은 UID가 있으면 건너뛰어요. 기존 일정을 덮어쓰지 않아요.
-              </p>
-            </section>
-            <section>
-              <h3>달력 0.2.3</h3>
-              <DownloadLink />
-              <p className="field-hint">
-                노트 · 연락처 · 달력
-                <br />
-                서로 다른 기록, 같은 편안함.
-              </p>
+              <details className="settings-note"><summary>가져오기 안내</summary><p className="field-hint">같은 캘린더에 같은 UID가 있으면 건너뛰어요. 기존 일정을 덮어쓰지 않아요.</p></details>
             </section>
           </div>
+</section> : null}>
+        <div className="sidebar-brand"><Brand /><div className="navigation-actions">
+          <button className="icon-button" aria-label="설정" onClick={openSettings}><Settings size={21}/></button>
+          {!Capacitor.isNativePlatform() && <a className="icon-button" aria-label="Android 앱 다운로드" href={DOWNLOAD}><Download size={21}/></a>}
+        </div></div>
+        <div className="calendar-list-head">
+          <h2>내 캘린더</h2>
+          <button
+            className="icon-button"
+            aria-label="캘린더 추가"
+            onClick={openSettings}
+          >
+            <Plus size={16} />
+          </button>
+        </div>
+        <div className="calendar-list">
+          {calendars.map((c) => (
+            <label key={c.id} className="calendar-toggle" style={colorStyle(c.color)}>
+              <input
+                type="checkbox"
+                checked={!c.hidden}
+                onChange={() => void db.calendars.update(c.id, { hidden: !c.hidden })}
+              />
+              <span>{c.name}</span>
+            </label>
+          ))}
+        </div>
+        <div className="sidebar-bottom">
+          <button
+            className="sync-detail"
+            onClick={() => void syncNow()}
+            disabled={sync.busy}
+            title={sync.message}
+          >
+            {sync.busy ? (
+              <RefreshCw className="spin" size={17} />
+            ) : tail.state === "Running" && !sync.error ? (
+              <CloudCheck size={17} />
+            ) : (
+              <CloudOff size={17} />
+            )}
+            <span>
+              <strong>
+                {sync.busy
+                  ? "동기화 중"
+                  : pending
+                    ? `${pending}개 변경 동기화 대기`
+                    : sync.error
+                      ? "연결 확인 필요"
+                      : sync.lastSync
+                        ? "동기화 완료"
+                        : "기기에 저장됨"}
+              </strong>
+              <small>
+                {sync.lastSync
+                  ? `${timeFormat.format(sync.lastSync)} 마지막 동기화`
+                  : "연결되면 자동 동기화"}
+              </small>
+            </span>
+          </button>
+        </div>
+      </Navigation>
+      <main className="main-content" inert={settings || (mobileNavigation && sidebar)}>
+        <header className="toolbar">
+          <div className="month-title">
+            <h1>
+              <span className="year">{anchor.getFullYear()}년</span> {anchor.getMonth() + 1}월
+            </h1>
+            <div className="date-navigation">
+              <button
+                className="icon-button"
+                aria-label="이전 달"
+                onClick={() => move(-1)}
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <button
+                className="icon-button"
+                aria-label="다음 달"
+                onClick={() => move(1)}
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          </div>
+        </header>
+        {(sync.error || expanded.failures > 0) && (
+          <div className="status-bar" role="status">
+            {expanded.failures
+              ? `${expanded.failures}개 일정의 반복 규칙을 표시하지 못했어요. 원본은 보관되어 있어요.`
+              : sync.message}
+            <button className="text-button" onClick={() => void syncNow()}>
+              다시 시도
+            </button>
+          </div>
+        )}
+        <div className="calendar-body">
+            <section
+              className="month-calendar"
+              aria-label={`${anchor.getFullYear()}년 ${anchor.getMonth() + 1}월 달력`}
+            >
+              <div className="weekday-row">
+                {weekday.map((d, i) => (
+                  <span key={d} className={i === 0 ? "sunday" : i === 6 ? "saturday" : ""}>
+                    {d}
+                  </span>
+                ))}
+              </div>
+              <div ref={gridRef} className="month-grid" style={{ "--month-weeks": range.weeks } as CSSProperties}>
+                {range.days.map((day) => {
+                  const items = expanded.events.filter((e) => onDay(e, day));
+                  return (
+                    <button
+                      key={localDate(day)}
+                      className={`day-cell ${day.getMonth() !== anchor.getMonth() ? "outside" : ""} ${sameDay(day, selected) ? "chosen" : ""}`}
+                      aria-label={dateLabel(day) + (sameDay(day, new Date()) ? " 오늘" : "") + `, 일정 ${items.length}개`}
+                      aria-haspopup="dialog"
+                      onClick={(e) => { e.currentTarget.focus(); chooseDate(day); }}
+                    >
+                      <span className="day-select">
+                        <span className={`day-number ${sameDay(day, new Date()) ? "is-today" : ""} ${day.getDay() === 0 ? "sunday" : day.getDay() === 6 ? "saturday" : ""}`}>
+                          {day.getDate()}
+                        </span>
+                      </span>
+                      <span className="day-events" aria-hidden="true">
+                        {items.slice(0, pillLimit).map((event) => (
+                          <span key={event.key + event.recurrenceId} className="event-chip"
+                            style={colorStyle(event.color ?? eventCalendar(event).color)} title={event.title}>
+                            <span>{event.title}</span>
+                          </span>
+                        ))}
+                        {items.length > pillLimit && <span className="more-events">+{items.length - pillLimit}</span>}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+        </div>
+      </main>
+      {dayOpen && (
+        <Modal fullScreen title={dateLabel(selected)} onClose={() => setDayOpen(false)}
+          actions={<button className="icon-button day-add" aria-label="선택일 일정 추가" onClick={() => setEditor({})}><Plus size={22} /></button>}>
+          <section className="day-detail-content" aria-label="선택한 날짜의 일정">
+            <p className="day-count">{dayEvents.length ? `${dayEvents.length}개의 일정` : "일정 없음"}</p>
+            {dayEvents.length ? dayEvents.map(eventRow) : (
+              <div className="empty-day">
+                <CalendarDays size={32} />
+                <p>아직 예정된 일정이 없어요.</p>
+                <button className="text-button" onClick={() => setEditor({})}><Plus size={16} /> 일정 추가하기</button>
+              </div>
+            )}
+          </section>
         </Modal>
+      )}
+      {editor && (
+        <Editor
+          record={editor.record}
+          date={selected}
+          calendars={calendars}
+          occurrence={editor.occurrence}
+          onClose={() => setEditor(null)}
+          onSaved={(message) => {
+            setEditor(null);
+            setNotice(message);
+          }}
+        />
       )}
       {notice && (
         <div className="toast" role="status">

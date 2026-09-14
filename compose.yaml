@@ -16,7 +16,7 @@ services:
     logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
   api:
     build: .
-    image: calendar:0.2.3
+    image: calendar:0.2.4
     container_name: calendar-api
     restart: unless-stopped
     init: true
@@ -41,7 +41,7 @@ services:
       timeout: 10s
       retries: 3
   web:
-    image: calendar:0.2.3
+    image: calendar:0.2.4
     container_name: calendar-web
     command: ['node', 'web.mjs']
     restart: unless-stopped
